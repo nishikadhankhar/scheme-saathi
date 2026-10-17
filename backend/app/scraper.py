@@ -1,0 +1,200 @@
+"""Scheme data from myScheme (myscheme.gov.in), the Government of India's scheme portal.
+
+The portal's own pages load their data from public JSON endpoints on the same
+site. We call those same endpoints, and cache every response on disk so that:
+  * we never hit the portal twice for the same thing (be polite), and
+  * a live demo keeps working even if venue Wi-Fi drops (cache is warm).
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import html
+import json
+import re
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+BASE = "https://www.myscheme.gov.in"
+SEARCH_URL = f"{BASE}/api/apisetu/search/schemes"
+DETAIL_URL = f"{BASE}/api/apisetu/schemes"
+HEADERS = {"user-agent": "Mozilla/5.0 (SchemeSaathi hackathon prototype)",
+           "referer": f"{BASE}/search", "accept": "application/json"}
+
+CACHE_DIR = Path(__file__).resolve().parents[1] / "cache" / "myscheme"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+SEARCH_TTL = 24 * 3600          # search results change rarely
+DETAIL_TTL = 7 * 24 * 3600      # scheme details change even more rarely
+
+# One HTTP client and request limit per event loop (tests may run several loops).
+_per_loop: dict[int, tuple[httpx.AsyncClient, asyncio.Semaphore]] = {}
+
+
+def _http() -> tuple[httpx.AsyncClient, asyncio.Semaphore]:
+    key = id(asyncio.get_running_loop())
+    if key not in _per_loop:
+        _per_loop[key] = (httpx.AsyncClient(headers=HEADERS, timeout=20, follow_redirects=True),
+                          asyncio.Semaphore(4))       # at most 4 requests to the portal at once
+    return _per_loop[key]
+
+
+# --------------------------------------------------------------------------- #
+#  Disk cache
+# --------------------------------------------------------------------------- #
+def _cache_path(kind: str, key: str) -> Path:
+    h = hashlib.sha256(key.encode()).hexdigest()[:20]
+    return CACHE_DIR / f"{kind}-{h}.json"
+
+
+def _cache_get(kind: str, key: str, ttl: int, allow_stale: bool = False) -> Any | None:
+    p = _cache_path(kind, key)
+    if not p.exists():
+        return None
+    if not allow_stale and time.time() - p.stat().st_mtime > ttl:
+        return None
+    try:
+        return json.loads(p.read_text())
+    except ValueError:
+        return None
+
+
+def _cache_put(kind: str, key: str, value: Any) -> None:
+    _cache_path(kind, key).write_text(json.dumps(value, ensure_ascii=False))
+
+
+async def _get_json(url: str, params: dict, kind: str, ttl: int) -> Any:
+    key = url + "?" + json.dumps(params, sort_keys=True)
+    hit = _cache_get(kind, key, ttl)
+    if hit is not None:
+        return hit
+    try:
+        client, sem = _http()
+        async with sem:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
+    except (httpx.HTTPError, ValueError):
+        stale = _cache_get(kind, key, ttl, allow_stale=True)
+        if stale is not None:           # portal down: an old answer beats no answer
+            return stale
+        raise
+    _cache_put(kind, key, data)
+    return data
+
+
+# --------------------------------------------------------------------------- #
+#  Rich text -> plain text
+# --------------------------------------------------------------------------- #
+def rich_to_text(node: Any) -> str:
+    """Flatten the portal's rich-text JSON tree into readable lines."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "\n".join(t for t in (rich_to_text(n) for n in node) if t.strip())
+    if isinstance(node, dict):
+        if "text" in node and "children" not in node:
+            return node["text"]
+        kids = node.get("children") or []
+        inner = "".join(rich_to_text(k) if not isinstance(k, dict) or "children" not in k
+                        else "\n" + rich_to_text(k) for k in kids)
+        if node.get("type") == "list_item":
+            inner = "- " + inner.strip()
+        return inner
+    return ""
+
+
+def md_to_text(md: str | None) -> str:
+    """Markdown from the portal -> plain text (drop ** and HTML entities, collapse blank lines)."""
+    if not md:
+        return ""
+    t = html.unescape(md)
+    t = re.sub(r"\*\*|__|`", "", t)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
+# --------------------------------------------------------------------------- #
+#  Public API
+# --------------------------------------------------------------------------- #
+async def search(filters: list[dict], keyword: str = "", size: int = 20) -> dict:
+    """Search schemes. `filters` is a list of {"identifier", "value"}.
+
+    Portal semantics: several values for the SAME identifier are ORed,
+    different identifiers are ANDed.
+    """
+    params = {"lang": "en", "q": json.dumps(filters), "keyword": keyword,
+              "sort": "", "from": 0, "size": size}
+    data = await _get_json(SEARCH_URL, params, "search", SEARCH_TTL)
+    hits = data.get("data", {}).get("hits", {})
+    items = []
+    for h in hits.get("items", []):
+        f = h.get("fields", {})
+        items.append({
+            "slug": f.get("slug"),
+            "name": f.get("schemeName"),
+            "short_title": f.get("schemeShortTitle"),
+            "brief": f.get("briefDescription"),
+            "level": f.get("level"),                    # Central / State
+            "states": f.get("beneficiaryState") or [],
+            "ministry": f.get("nodalMinistryName"),
+            "department": f.get("nodalDepartmentName"),
+            "categories": f.get("schemeCategory") or [],
+            "tags": f.get("tags") or [],
+            "close_date": f.get("schemeCloseDate"),
+            "scheme_for": f.get("schemeFor"),           # Individual / Family / ...
+        })
+    return {"total": hits.get("page", {}).get("total", 0), "items": items}
+
+
+async def detail(slug: str) -> dict:
+    """Full scheme details (benefits, eligibility, how to apply, documents) as plain text."""
+    data = await _get_json(DETAIL_URL, {"slug": slug, "lang": "en"}, "detail", DETAIL_TTL)
+    d = data.get("data") or {}
+    en = d.get("en") or {}
+    basic = en.get("basicDetails") or {}
+    content = en.get("schemeContent") or {}
+    elig = en.get("eligibilityCriteria") or {}
+
+    docs_text = ""
+    if d.get("_id"):
+        try:
+            docs = await _get_json(f"{DETAIL_URL}/{d['_id']}/documents", {"lang": "en"},
+                                   "docs", DETAIL_TTL)
+            dd = (docs.get("data") or {}).get("en") or {}
+            docs_text = md_to_text(dd.get("documents_required_md")) or rich_to_text(
+                dd.get("documents_required"))
+        except (httpx.HTTPError, ValueError):
+            pass
+
+    apply = []
+    for a in en.get("applicationProcess") or []:
+        apply.append({"mode": a.get("mode"), "url": a.get("url"),
+                      "steps": md_to_text(a.get("process_md")) or rich_to_text(a.get("process"))})
+
+    label = lambda v: v.get("label") if isinstance(v, dict) else v   # noqa: E731
+    return {
+        "slug": slug,
+        "id": d.get("_id"),
+        "name": basic.get("schemeName"),
+        "short_title": basic.get("schemeShortTitle"),
+        "level": label(basic.get("level")),
+        "ministry": label(basic.get("nodalMinistryName")),
+        "scheme_for": basic.get("schemeFor"),
+        "tags": basic.get("tags") or [],
+        "brief": content.get("briefDescription"),
+        "description": md_to_text(content.get("detailedDescription_md")),
+        "benefit_type": label(content.get("benefitTypes")),
+        "benefits": md_to_text(content.get("benefits_md")),
+        "eligibility": md_to_text(elig.get("eligibilityDescription_md")),
+        "exclusions": md_to_text(content.get("exclusions_md")),
+        "documents": docs_text,
+        "apply": apply,
+        "references": content.get("references") or [],
+        "url": f"{BASE}/schemes/{slug}",
+    }
