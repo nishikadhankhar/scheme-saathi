@@ -56,13 +56,13 @@ def _cache_get(kind: str, key: str, ttl: int, allow_stale: bool = False) -> Any 
     if not allow_stale and time.time() - p.stat().st_mtime > ttl:
         return None
     try:
-        return json.loads(p.read_text())
+        return json.loads(p.read_text(encoding="utf-8"))
     except ValueError:
         return None
 
 
 def _cache_put(kind: str, key: str, value: Any) -> None:
-    _cache_path(kind, key).write_text(json.dumps(value, ensure_ascii=False))
+    _cache_path(kind, key).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
 async def _get_json(url: str, params: dict, kind: str, ttl: int) -> Any:
@@ -152,28 +152,37 @@ async def search(filters: list[dict], keyword: str = "", size: int = 20) -> dict
     return {"total": hits.get("page", {}).get("total", 0), "items": items}
 
 
-async def detail(slug: str) -> dict:
+async def detail(slug: str, lang: str = "en") -> dict:
     """Full scheme details (benefits, eligibility, how to apply, documents) as plain text."""
-    data = await _get_json(DETAIL_URL, {"slug": slug, "lang": "en"}, "detail", DETAIL_TTL)
+    data = await _get_json(DETAIL_URL, {"slug": slug, "lang": lang}, "detail", DETAIL_TTL)
     d = data.get("data") or {}
-    en = d.get("en") or {}
-    basic = en.get("basicDetails") or {}
-    content = en.get("schemeContent") or {}
-    elig = en.get("eligibilityCriteria") or {}
+    if not (d.get(lang) or d.get("en")) and lang != "en":
+        data = await _get_json(DETAIL_URL, {"slug": slug, "lang": "en"}, "detail", DETAIL_TTL)
+        d = data.get("data") or {}
+
+    lang_section = d.get(lang) or {}
+    en_section = d.get("en") or {}
+    basic = lang_section.get("basicDetails") or en_section.get("basicDetails") or {}
+    content = lang_section.get("schemeContent") or en_section.get("schemeContent") or {}
+    elig = (lang_section.get("eligibilityCriteria")
+            or en_section.get("eligibilityCriteria")
+            or d.get("eligibilityCriteria") or {})
 
     docs_text = ""
     if d.get("_id"):
         try:
-            docs = await _get_json(f"{DETAIL_URL}/{d['_id']}/documents", {"lang": "en"},
+            docs = await _get_json(f"{DETAIL_URL}/{d['_id']}/documents", {"lang": lang},
                                    "docs", DETAIL_TTL)
-            dd = (docs.get("data") or {}).get("en") or {}
+            dd = ((docs.get("data") or {}).get(lang)
+                  or (docs.get("data") or {}).get("en") or {})
             docs_text = md_to_text(dd.get("documents_required_md")) or rich_to_text(
                 dd.get("documents_required"))
         except (httpx.HTTPError, ValueError):
             pass
 
     apply = []
-    for a in en.get("applicationProcess") or []:
+    app_process = lang_section.get("applicationProcess") or en_section.get("applicationProcess") or []
+    for a in app_process:
         apply.append({"mode": a.get("mode"), "url": a.get("url"),
                       "steps": md_to_text(a.get("process_md")) or rich_to_text(a.get("process"))})
 

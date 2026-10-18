@@ -1,7 +1,26 @@
 .env
+.env.*
+*.env
 cache/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
 *.part
 .DS_Store
+Thumbs.db
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Frontend dependencies and builds
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/

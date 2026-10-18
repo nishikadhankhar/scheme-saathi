@@ -26,9 +26,8 @@ HARD RULES
 - Every number you write must appear in SOURCE.
 - If something is not in SOURCE, leave it out.
 - Never tell them to share Aadhaar or bank details with anyone except the official office/portal.
-
 FIELDS
-- title: the scheme's common name, in the language (keep well-known acronyms like PM-KISAN).
+- title: the scheme's name written in the requested language and script. CRITICAL: If the requested language is not English (e.g. Hindi), the title MUST be written in that language's script (e.g. Devanagari for Hindi: 'डॉ. बी.आर. अंबेडकर आवास नवीनीकरण योजना', 'राष्ट्रीय पारिवारिक लाभ योजना (NFBS)'). Keep well-known English acronyms in parentheses if helpful, but NEVER return a purely Latin/English title for non-English languages.
 - one_line: what it gives, at most 12 words.
 - benefit: the main benefit with the amount if SOURCE has one, at most 25 words.
 - who_can_get: who is eligible, at most 30 words.
@@ -124,7 +123,7 @@ async def card(slug: str, language: str = "en", profile: Profile | None = None) 
     key = (slug, language, profile.model_dump_json() if profile else "")
     if key in _cache:
         return _cache[key]
-    d = await scraper.detail(slug)
+    d = await scraper.detail(slug, lang=language)
     if not d.get("name"):
         raise LookupError(f"Scheme '{slug}' not found")
 

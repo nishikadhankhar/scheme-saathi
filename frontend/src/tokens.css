@@ -1,0 +1,71 @@
+/* SchemeSaathi — generated from tokens.json */
+
+:root,
+[data-theme="day"] {
+  --surface: #fbf6ec;
+  --surface-raised: #fffdf8;
+  --surface-sunken: #f3eada;
+  --ink: #231a12;
+  --ink-muted: #594838;
+  --on-fill: #ffffff;
+  --field-800: #1f4d29;
+  --field-700: #2f6b3a;
+  --field-500: #5d9a4f;
+  --field-100: #e3efd9;
+  --turmeric-400: #f2b33d;
+  --turmeric-100: #fcefcf;
+  --terracotta-600: #a3462a;
+  --terracotta-100: #f7e0d5;
+  --line: #e2d4bd;
+  --line-strong: #8a765d;
+  --focus: #0b5cad;
+  --sky-100: #dcebf5;
+  --shadow-card: 0 2px 0 #e2d4bd, 0 8px 24px rgba(74, 52, 28, 0.10);
+  --shadow-sheet: 0 -12px 40px rgba(35, 26, 18, 0.22);
+}
+
+[data-theme="sunlight"] {
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2f2f2;
+  --ink: #000000;
+  --ink-muted: #231a12;
+  --on-fill: #ffffff;
+  --field-800: #123018;
+  --field-700: #1c4a25;
+  --field-500: #2f6b3a;
+  --field-100: #dcefd0;
+  --turmeric-400: #f2b33d;
+  --turmeric-100: #fbe7b0;
+  --terracotta-600: #7e2d14;
+  --terracotta-100: #f6d6c6;
+  --line: #8c7a62;
+  --line-strong: #3b2f22;
+  --focus: #003f87;
+  --sky-100: #d4e6f3;
+  --shadow-card: 0 0 0 2px #3b2f22;
+  --shadow-sheet: 0 -2px 0 #000000;
+}
+
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+  --radius-full: 999px;
+  --touch-min: 48px;
+  --touch-primary: 64px;
+  --mic: 120px;
+  --column: 560px;
+  --duration-fast: 160ms;
+  --duration-flip: 420ms;
+  --duration-sheet: 320ms;
+  --font-sans: "Mukta", "Noto Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Gurmukhi", "Noto Sans Tamil", system-ui, sans-serif;
+  --font-script: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Gurmukhi", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", "Noto Sans Malayalam", "Noto Sans Oriya", sans-serif;
+}
