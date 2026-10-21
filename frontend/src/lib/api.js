@@ -8,7 +8,19 @@
 //   not-found   404: unknown scheme
 //   bad-request 400/422: empty message/audio, or a payload the backend rejects
 //   error       anything else
-const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+export const API_BASE_URL = (
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_BASE ||
+  ''
+).trim().replace(/\/+$/, '');
+
+const BASE = API_BASE_URL;
+
+const buildUrl = (path) => {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${BASE}${cleanPath}`;
+};
+
 
 export class ApiError extends Error {
   constructor(kind, status = 0, detail = '') {
@@ -40,7 +52,7 @@ async function request(path, { method = 'GET', json, form, timeout = 45000 } = {
   const timer = setTimeout(() => ctl.abort(), timeout);
   let res;
   try {
-    res = await fetch(BASE + path, {
+    res = await fetch(buildUrl(path), {
       method,
       headers: json ? { 'content-type': 'application/json' } : undefined,
       body: json ? JSON.stringify(json) : form,
@@ -92,7 +104,7 @@ export const api = {
       timeout: 60000,
     }),
 
-  ttsUrl: (text, lang) => `${BASE}/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}`,
+  ttsUrl: (text, lang) => `${buildUrl('/api/tts')}?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}`,
 };
 
 /** Which StatusBanner explains this failure, and whether "Try again" makes sense. */
